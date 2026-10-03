@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "733931325035",
+    "project_id": "csc497-8aedd",
+    "storage_bucket": "csc497-8aedd.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:733931325035:android:9656628dbeabaf32db932e",
+        "android_client_info": {
+          "package_name": "com.saaf.saaf"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBqxRwQ3OnLZypPHc8AU69N8vQxEZhhSL0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
