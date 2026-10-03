@@ -50,7 +50,7 @@ The model works in two stages: it first decides **healthy vs. diseased**, then c
 | Authentication | Firebase Authentication |
 | Database | Cloud Firestore |
 | AI model | PyTorch (EfficientNetV2-S + Swin-Tiny) |
-| Explainability | Grad-CAM |
+| Explainability | Grad-CAM++ |
 
 ## Getting Started
 
