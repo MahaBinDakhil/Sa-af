@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
 import 'scan_page.dart';
-import 'theme/app_colors.dart';
-import 'widgets/app_bottom_nav.dart';
+import 'app_colors.dart';
+import 'app_bottom_nav.dart';
+import 'chatbot.dart';
+import 'History.dart';
 
 enum ThumbnailKind {
   blackScorch,
@@ -77,7 +79,7 @@ class HomeScreen extends StatelessWidget {
   void _openDiagnosisHistory(BuildContext context) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => const DiagnosisHistoryPage(),
+        builder: (_) => const HistoryScreen(),
       ),
     );
   }
@@ -218,8 +220,9 @@ class HomeScreen extends StatelessWidget {
       bottomNavigationBar: AppBottomNavigationBar(
         current: NavTab.home,
         onHomeTap: () {},
-        onChatbotTap: () =>
-            _showMessage(context, 'Chatbot is a demo placeholder.'),
+        onChatbotTap: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => const ChatbotScreen()),
+        ),
         onFrameTap: () => _openScan(context),
         onHistoryTap: () => _openDiagnosisHistory(context),
         onSettingsTap: () =>
@@ -595,7 +598,7 @@ class DiagnosisHistoryPage extends StatelessWidget {
       body: ListView.separated(
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
         itemCount: diagnosisCases.length,
-        separatorBuilder: (_, _) => const SizedBox(height: 14),
+        separatorBuilder: (_, __) => const SizedBox(height: 14),
         itemBuilder: (context, index) {
           final item = diagnosisCases[index];
           return DiagnosisCard(
@@ -756,9 +759,8 @@ class ThumbnailPainter extends CustomPainter {
         canvas.drawPath(
           path,
           Paint()
-            ..color = i.isEven
-                ? const Color(0xFF244D31)
-                : const Color(0xFF91B270)
+            ..color =
+                i.isEven ? const Color(0xFF244D31) : const Color(0xFF91B270)
             ..style = PaintingStyle.stroke
             ..strokeWidth = 4
             ..strokeCap = StrokeCap.round,
@@ -777,9 +779,8 @@ class ThumbnailPainter extends CustomPainter {
           Offset(size.width * (i * 0.20), size.height),
           Offset(size.width * (i * 0.20 + 0.85), 0),
           Paint()
-            ..color = i.isEven
-                ? const Color(0xFF405431)
-                : const Color(0xFFB18441)
+            ..color =
+                i.isEven ? const Color(0xFF405431) : const Color(0xFFB18441)
             ..strokeWidth = 3,
         );
       }

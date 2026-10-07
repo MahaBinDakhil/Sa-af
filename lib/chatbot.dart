@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'services/chat_service.dart';
+import 'app_bottom_nav.dart';
+import 'History.dart';
+import 'scan_page.dart';
 
 class ChatbotScreen extends StatefulWidget {
   final String? chatId;
@@ -30,9 +33,16 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
   List<ChatMessage> _messages = [];
   bool _isTyping = false;
 
-  final List<String> _suggestions = [
+  // تظهر لما يُفتح الشات من نتيجة فحص
+  final List<String> _diseaseSuggestions = [
     'How can I treat this disease?',
     'How did you identify this disease?',
+  ];
+
+  // تظهر لما يُفتح الشات من الشريط (بدون فحص)
+  final List<String> _generalSuggestions = [
+    'How do I keep my date palm healthy?',
+    'What are common date palm diseases?',
   ];
 
   @override
@@ -71,12 +81,15 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
         diseaseId: widget.diseaseId,
         confidence: widget.confidence,
         language: 'en', // Set to 'ar' for Arabic replies
-      );
+      ).timeout(const Duration(seconds: 45));
     } catch (e) {
       debugPrint('send failed: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('تعذّر الإرسال: $e')),
+          SnackBar(
+            content: Text('تعذّر الإرسال: $e'),
+            duration: const Duration(seconds: 10),
+          ),
         );
       }
     } finally {
@@ -150,6 +163,9 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
   }
 
   Widget _welcome() {
+    final suggestions =
+        widget.diseaseId != null ? _diseaseSuggestions : _generalSuggestions;
+
     return LayoutBuilder(
       builder: (context, constraints) {
         final avatarSize =
@@ -165,30 +181,27 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
             const Text('How can I help you?',
                 style: TextStyle(fontSize: 20, color: Colors.black)),
             const Spacer(flex: 3),
-
-            // Show quick suggestions only when attached to a disease scan
-            if (widget.diseaseId != null)
-              ..._suggestions.map(
-                (s) => Align(
-                  alignment: Alignment.centerLeft,
-                  child: Padding(
-                    padding: const EdgeInsets.only(bottom: 12, left: 16),
-                    child: OutlinedButton(
-                      onPressed: () => _send(s),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.black,
-                        side: const BorderSide(color: Colors.black),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(24),
-                        ),
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 14),
+            ...suggestions.map(
+              (s) => Align(
+                alignment: Alignment.centerLeft,
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 12, left: 16),
+                  child: OutlinedButton(
+                    onPressed: () => _send(s),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.black,
+                      side: const BorderSide(color: Colors.black),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(24),
                       ),
-                      child: Text(s),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 14),
                     ),
+                    child: Text(s),
                   ),
                 ),
               ),
+            ),
             const SizedBox(height: 8),
           ],
         );
@@ -321,6 +334,8 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final keyboardOpen = MediaQuery.of(context).viewInsets.bottom > 0;
+
     return Directionality(
       textDirection: TextDirection.ltr,
       child: Scaffold(
@@ -370,6 +385,23 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
             ],
           ),
         ),
+        // الشريط يختفي لما يطلع الكيبورد عشان ما ياكل مساحة الكتابة
+        bottomNavigationBar: keyboardOpen
+            ? null
+            : AppBottomNavigationBar(
+                current: NavTab.chatbot,
+                onHomeTap: () =>
+                    Navigator.of(context).popUntil((r) => r.isFirst),
+                onChatbotTap: () {},
+                onFrameTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(builder: (_) => const ScanPage()),
+                ),
+                onHistoryTap: () => Navigator.of(context).pushReplacement(
+                  MaterialPageRoute<void>(
+                      builder: (_) => const HistoryScreen()),
+                ),
+                onSettingsTap: () {},
+              ),
       ),
     );
   }
