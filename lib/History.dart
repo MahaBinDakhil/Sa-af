@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
-import 'analysis_result_screen.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'scan_details_screen_History.dart';
 
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key});
@@ -9,225 +11,262 @@ class HistoryScreen extends StatefulWidget {
 }
 
 class _HistoryScreenState extends State<HistoryScreen> {
-  // Sample data simulating scan history records retrieved from database or local storage
-  final List<Map<String, dynamic>> _historyData = [
-    {
-      'id': '1',
-      'title': 'Healthy Leaf',
-      'date': 'Oct 24, 2023 - 10:30 AM',
-      'status': 'Healthy',
-      'confidence': '98.5%',
-      'imagePath': 'assets/images/leaf_sample.png',
-      'isHealthy': true,
-    },
-    {
-      'id': '2',
-      'title': 'Leaf Spot Disease',
-      'date': 'Oct 22, 2023 - 02:15 PM',
-      'status': 'Infected',
-      'confidence': '92.1%',
-      'imagePath': 'assets/images/leaf_sample.png',
-      'isHealthy': false,
-    },
-    {
-      'id': '3',
-      'title': 'Red Palm Weevil',
-      'date': 'Oct 15, 2023 - 09:45 AM',
-      'status': 'Infected',
-      'confidence': '95.0%',
-      'imagePath': 'assets/images/leaf_sample.png',
-      'isHealthy': false,
-    },
-  ];
+  String _selectedFilter = 'All';
+  String _searchQuery = '';
+  final TextEditingController _searchController = TextEditingController();
 
   @override
   Widget build(BuildContext context) {
-    const Color darkGreen = Color(0xFF17372A);
-    const Color backgroundColor = Color(0xFFF4FFF5);
+    final userId = FirebaseAuth.instance.currentUser?.uid;
 
     return Scaffold(
-      backgroundColor: backgroundColor,
+      backgroundColor: const Color(0xFFF6F6F6),
       appBar: AppBar(
-        backgroundColor: darkGreen,
-        elevation: 0,
+        title: const Text('History', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
         centerTitle: true,
-        title: const Text(
-          'Scan History',
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
+        elevation: 0,
+        backgroundColor: Colors.transparent,
       ),
-      body: _historyData.isEmpty
-          ? _buildEmptyState()
-          : ListView.builder(
-              padding: const EdgeInsets.all(16.0),
-              itemCount: _historyData.length,
-              itemBuilder: (context, index) {
-                final item = _historyData[index];
-                return _buildHistoryCard(context, item);
+      body: Column(
+        children: [
+          // Search bar (REQ7)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: TextField(
+              controller: _searchController,
+              onChanged: (value) {
+                setState(() {
+                  _searchQuery = value.toLowerCase();
+                });
+              },
+              decoration: InputDecoration(
+                hintText: 'Search by diseases name',
+                prefixIcon: const Icon(Icons.search),
+                fillColor: Colors.white,
+                filled: true,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(25),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // Filter chips for status selection (REQ3)
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: ['All', 'Healthy', 'Diseased'].map((filter) {
+              final isSelected = _selectedFilter == filter;
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                child: ChoiceChip(
+                  label: Text(filter),
+                  selected: isSelected,
+                  selectedColor: const Color(0xFF4C6B50),
+                  labelStyle: TextStyle(
+                    color: isSelected ? Colors.white : Colors.black,
+                  ),
+                  onSelected: (selected) {
+                    if (selected) {
+                      setState(() {
+                        _selectedFilter = filter;
+                      });
+                    }
+                  },
+                ),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 10),
+
+          // Real-time listener for user scans ordered from newest to oldest (REQ1)
+          Expanded(
+            child: StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('users')
+                  .doc(userId)
+                  .collection('scans')
+                  .orderBy('timestamp', descending: true)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+
+                // Show empty state if no scans exist (REQ5)
+                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                  return _buildEmptyState(context);
+                }
+
+                // Local filtering logic for search and status chips
+                var docs = snapshot.data!.docs.where((doc) {
+                  final data = doc.data() as Map<String, dynamic>;
+                  final title = (data['title'] ?? '').toString().toLowerCase();
+                  final status = (data['status'] ?? '').toString();
+
+                  bool matchesSearch = title.contains(_searchQuery);
+                  bool matchesFilter = true;
+
+                  if (_selectedFilter == 'Healthy') {
+                    matchesFilter = status.toLowerCase() == 'healthy';
+                  } else if (_selectedFilter == 'Diseased') {
+                    matchesFilter = status.toLowerCase() != 'healthy';
+                  }
+
+                  return matchesSearch && matchesFilter;
+                }).toList();
+
+                if (docs.isEmpty) {
+                  return const Center(child: Text('No matching scans found.'));
+                }
+
+                return Column(
+                  children: [
+                    // Display total scans count (REQ1)
+                    Text(
+                      '${docs.length} scan saved',
+                      style: const TextStyle(color: Colors.grey),
+                    ),
+                    const SizedBox(height: 10),
+                    Expanded(
+                      child: ListView.builder(
+                        itemCount: docs.length,
+                        itemBuilder: (context, index) {
+                          final doc = docs[index];
+                          final data = doc.data() as Map<String, dynamic>;
+
+                          return _buildScanCard(context, doc.id, data);
+                        },
+                      ),
+                    ),
+                  ],
+                );
               },
             ),
+          ),
+        ],
+      ),
     );
   }
 
-  // Widget to display when history list is empty
-  Widget _buildEmptyState() {
+  // Individual scan card item (REQ2)
+  Widget _buildScanCard(BuildContext context, String docId, Map<String, dynamic> data) {
+    final bool isHealthy = (data['status'] ?? '').toString().toLowerCase() == 'healthy';
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: ListTile(
+        onTap: () {
+          // Navigate to scan details screen passing document ID (REQ4)
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => ScanDetailsScreen(scanId: docId),
+            ),
+          );
+        },
+        leading: ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: Image.network(
+            data['imageUrl'] ?? '',
+            width: 50,
+            height: 50,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) =>
+                Container(width: 50, height: 50, color: Colors.grey[300], child: const Icon(Icons.image)),
+          ),
+        ),
+        title: Row(
+          children: [
+            Text(data['title'] ?? 'Unknown', style: const TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: isHealthy ? Colors.green[100] : Colors.orange[100],
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                data['status'] ?? '',
+                style: TextStyle(
+                  fontSize: 10,
+                  color: isHealthy ? Colors.green[800] : Colors.orange[800],
+                ),
+              ),
+            ),
+          ],
+        ),
+        subtitle: Text('Confidence: ${data['confidence'] ?? 0}%'),
+        trailing: IconButton(
+          icon: const Icon(Icons.delete_outline, color: Colors.grey),
+          onPressed: () {
+            // Trigger confirmation dialog for deletion (REQ6)
+            _showDeleteDialog(context, docId);
+          },
+        ),
+      ),
+    );
+  }
+
+  // Empty state screen widget (REQ5)
+  Widget _buildEmptyState(BuildContext context) {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
-        children: const [
-          Icon(
-            Icons.history_toggle_off,
-            size: 80,
-            color: Colors.grey,
-          ),
-          SizedBox(height: 16),
-          Text(
-            'No scan history found',
-            style: TextStyle(
-              fontSize: 18,
-              color: Colors.grey,
-              fontWeight: FontWeight.w500,
+        children: [
+          const Icon(Icons.history, size: 80, color: Colors.grey),
+          const SizedBox(height: 16),
+          const Text('No scans yet', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          const Text('Scan your first date palm and its\ndiagnosis will show up here.',
+              textAlign: TextAlign.center, style: TextStyle(color: Colors.grey)),
+          const SizedBox(height: 20),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF4C6B50),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
             ),
-          ),
+            onPressed: () {},
+            child: const Text('Start Scan', style: TextStyle(color: Colors.white)),
+          )
         ],
       ),
     );
   }
 
-  // Widget to build individual scan history cards
-  Widget _buildHistoryCard(BuildContext context, Map<String, dynamic> item) {
-    final bool isHealthy = item['isHealthy'] ?? false;
+  // Deletion confirmation dialog (REQ6)
+  void _showDeleteDialog(BuildContext context, String docId) {
+    final userId = FirebaseAuth.instance.currentUser?.uid;
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16.0),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12.0),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.06),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete this scan?'),
+        content: const Text('This scan will be removed from your history. This can\'t be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.brown),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await FirebaseFirestore.instance
+                  .collection('users')
+                  .doc(userId)
+                  .collection('scans')
+                  .doc(docId)
+                  .delete();
+            },
+            child: const Text('Delete', style: TextStyle(color: Colors.white)),
           ),
         ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        borderRadius: BorderRadius.circular(12.0),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(12.0),
-          // Navigating to AnalysisResultScreen upon tapping an item
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => const AnalysisResultScreen(),
-              ),
-            );
-          },
-          child: Padding(
-            padding: const EdgeInsets.all(12.0),
-            child: Row(
-              children: [
-                // Scan Thumbnail Image
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(8.0),
-                  child: Image.asset(
-                    item['imagePath'],
-                    width: 70,
-                    height: 70,
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) {
-                      return Container(
-                        width: 70,
-                        height: 70,
-                        color: Colors.grey.shade300,
-                        child: const Icon(
-                          Icons.image_not_supported,
-                          color: Colors.grey,
-                        ),
-                      );
-                    },
-                  ),
-                ),
-                const SizedBox(width: 14),
-
-                // Scan Details Information
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        item['title'],
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF17372A),
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        item['date'],
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey.shade600,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          // Status Tag (Healthy / Infected)
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 3,
-                            ),
-                            decoration: BoxDecoration(
-                              color: isHealthy
-                                  ? Colors.green.shade50
-                                  : Colors.red.shade50,
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(
-                              item['status'],
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                                color: isHealthy
-                                    ? Colors.green.shade700
-                                    : Colors.red.shade700,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          // Confidence Score
-                          Text(
-                            'Confidence: ${item['confidence']}',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Colors.grey.shade700,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-
-                // Forward Arrow Icon
-                const Icon(
-                  Icons.arrow_forward_ios,
-                  size: 16,
-                  color: Colors.grey,
-                ),
-              ],
-            ),
-          ),
-        ),
       ),
     );
   }
