@@ -1,7 +1,20 @@
 import 'package:flutter/material.dart';
+import 'services/chat_service.dart';
+import 'app_bottom_nav.dart';
+import 'History.dart';
+import 'scan_page.dart';
 
 class ChatbotScreen extends StatefulWidget {
-  const ChatbotScreen({super.key});
+  final String? chatId;
+  final String? diseaseId;
+  final double? confidence;
+
+  const ChatbotScreen({
+    super.key,
+    this.chatId,
+    this.diseaseId,
+    this.confidence,
+  });
 
   @override
   State<ChatbotScreen> createState() => _ChatbotScreenState();
@@ -14,44 +27,77 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
 
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scroll = ScrollController();
-  final List<Map<String, dynamic>> _messages = [];
 
-  final List<String> _suggestions = [
+  String? _activeChatId;
+  String? _error;
+  List<ChatMessage> _messages = [];
+  bool _isTyping = false;
+
+  // تظهر لما يُفتح الشات من نتيجة فحص
+  final List<String> _diseaseSuggestions = [
     'How can I treat this disease?',
     'How did you identify this disease?',
   ];
 
-  void _send([String? preset]) {
-    final text = (preset ?? _controller.text).trim();
-    if (text.isEmpty) return;
-    setState(() {
-      _messages.add({'text': text, 'isUser': true});
-    });
-    _controller.clear();
-    _scrollToEnd();
+  // تظهر لما يُفتح الشات من الشريط (بدون فحص)
+  final List<String> _generalSuggestions = [
+    'How do I keep my date palm healthy?',
+    'What are common date palm diseases?',
+  ];
 
-    // رد تجريبي من البوت (نستبدله بالربط الحقيقي لاحقاً)
-    Future.delayed(const Duration(milliseconds: 600), () {
-      if (!mounted) return;
-      setState(() {
-        _messages.add({'text': _fakeReply(text), 'isUser': false});
-      });
-      _scrollToEnd();
+  @override
+  void initState() {
+    super.initState();
+    _activeChatId = widget.chatId;
+    if (_activeChatId == null) _startChat();
+  }
+
+  void _startChat() {
+    setState(() => _error = null);
+    ChatService.startChat(
+      diseaseId: widget.diseaseId,
+      title: widget.diseaseId != null ? 'Scan Question' : 'New Chat',
+    ).timeout(const Duration(seconds: 15)).then((id) {
+      if (mounted) setState(() => _activeChatId = id);
+    }).catchError((e) {
+      debugPrint('startChat failed: $e');
+      if (mounted) setState(() => _error = e.toString());
     });
   }
 
-  String _fakeReply(String question) {
-    if (question == 'How can I treat this disease?') {
-      return 'Black Scorch Treatment:\n\n'
-          '✂️ Prune: Cut & burn infected fronds.\n'
-          '🧴 Spray: Apply copper-based fungicide.\n'
-          '🧽 Disinfect: Sterilize pruning tools.\n'
-          '💧 Dry: Keep the palm crown dry.';
+  Future<void> _send([String? preset]) async {
+    final text = (preset ?? _controller.text).trim();
+    if (text.isEmpty || _activeChatId == null) return;
+
+    _controller.clear();
+    setState(() => _isTyping = true);
+    _scrollToEnd();
+
+    try {
+      await ChatService.send(
+        chatId: _activeChatId!,
+        history: _messages,
+        userText: text,
+        diseaseId: widget.diseaseId,
+        confidence: widget.confidence,
+        language: 'en', // Set to 'ar' for Arabic replies
+      ).timeout(const Duration(seconds: 45));
+    } catch (e) {
+      debugPrint('send failed: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('تعذّر الإرسال: $e'),
+            duration: const Duration(seconds: 10),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isTyping = false);
+        _scrollToEnd();
+      }
     }
-    if (question == 'How did you identify this disease?') {
-      return 'Here is how the model detected the disease symptoms.';
-    }
-    return 'شكراً لسؤالك! سأرد عليك قريباً.';
   }
 
   void _scrollToEnd() {
@@ -117,9 +163,11 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
   }
 
   Widget _welcome() {
+    final suggestions =
+        widget.diseaseId != null ? _diseaseSuggestions : _generalSuggestions;
+
     return LayoutBuilder(
       builder: (context, constraints) {
-        // حجم الدائرة يتكيف مع ارتفاع الشاشة
         final avatarSize =
             (constraints.maxHeight * 0.32).clamp(100.0, 190.0);
         return Column(
@@ -130,10 +178,10 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
             const Text('Hello',
                 style: TextStyle(fontSize: 20, color: Colors.black38)),
             const SizedBox(height: 8),
-            const Text('How can i help you ?',
+            const Text('How can I help you?',
                 style: TextStyle(fontSize: 20, color: Colors.black)),
             const Spacer(flex: 3),
-            ..._suggestions.map(
+            ...suggestions.map(
               (s) => Align(
                 alignment: Alignment.centerLeft,
                 child: Padding(
@@ -165,20 +213,31 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
     return ListView.builder(
       controller: _scroll,
       padding: const EdgeInsets.all(16),
-      itemCount: _messages.length,
+      itemCount: _messages.length + (_isTyping ? 1 : 0),
       itemBuilder: (context, i) {
+        if (i == _messages.length) {
+          return _buildTypingIndicator();
+        }
+
         final m = _messages[i];
-        final isUser = m['isUser'] as bool;
+        final isUser = m.isUser;
         final bubble = Flexible(
           child: Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: _bubble,
+              color: isUser ? _green : _bubble,
               borderRadius: BorderRadius.circular(16),
             ),
-            child: Text(m['text'], style: const TextStyle(fontSize: 14)),
+            child: Text(
+              m.text,
+              style: TextStyle(
+                fontSize: 14,
+                color: isUser ? Colors.white : Colors.black87,
+              ),
+            ),
           ),
         );
+
         return Padding(
           padding: const EdgeInsets.symmetric(vertical: 8),
           child: Row(
@@ -194,6 +253,33 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
     );
   }
 
+  Widget _buildTypingIndicator() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          _botAvatar(),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: _bubble,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: const Text(
+              'Sa\'af AI is thinking...',
+              style: TextStyle(
+                  fontSize: 13,
+                  fontStyle: FontStyle.italic,
+                  color: Colors.black54),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _inputField() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
@@ -201,7 +287,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
         controller: _controller,
         onSubmitted: (_) => _send(),
         decoration: InputDecoration(
-          hintText: 'Ask PlamCare AI...',
+          hintText: 'Ask Sa\'af AI...',
           hintStyle: const TextStyle(color: Colors.black38),
           contentPadding:
               const EdgeInsets.symmetric(horizontal: 14, vertical: 18),
@@ -222,8 +308,34 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
     );
   }
 
+  Widget _errorView() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('تعذّر فتح المحادثة',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 12),
+            Text(_error ?? '',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.black54)),
+            const SizedBox(height: 16),
+            OutlinedButton(
+              onPressed: _startChat,
+              child: const Text('إعادة المحاولة'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final keyboardOpen = MediaQuery.of(context).viewInsets.bottom > 0;
+
     return Directionality(
       textDirection: TextDirection.ltr,
       child: Scaffold(
@@ -244,12 +356,52 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                 ),
               ),
               Expanded(
-                child: _messages.isEmpty ? _welcome() : _messageList(),
+                child: _error != null
+                    ? _errorView()
+                    : _activeChatId == null
+                        ? const Center(child: CircularProgressIndicator())
+                        : StreamBuilder<List<ChatMessage>>(
+                            stream: ChatService.messagesStream(_activeChatId!),
+                            builder: (context, snapshot) {
+                              if (snapshot.hasError) {
+                                return Center(
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(24),
+                                    child: Text(
+                                        'خطأ في تحميل الرسائل:\n${snapshot.error}',
+                                        textAlign: TextAlign.center),
+                                  ),
+                                );
+                              }
+                              _messages = snapshot.data ?? [];
+                              if (_messages.isEmpty && !_isTyping) {
+                                return _welcome();
+                              }
+                              return _messageList();
+                            },
+                          ),
               ),
               _inputField(),
             ],
           ),
         ),
+        // الشريط يختفي لما يطلع الكيبورد عشان ما ياكل مساحة الكتابة
+        bottomNavigationBar: keyboardOpen
+            ? null
+            : AppBottomNavigationBar(
+                current: NavTab.chatbot,
+                onHomeTap: () =>
+                    Navigator.of(context).popUntil((r) => r.isFirst),
+                onChatbotTap: () {},
+                onFrameTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(builder: (_) => const ScanPage()),
+                ),
+                onHistoryTap: () => Navigator.of(context).pushReplacement(
+                  MaterialPageRoute<void>(
+                      builder: (_) => const HistoryScreen()),
+                ),
+                onSettingsTap: () {},
+              ),
       ),
     );
   }
